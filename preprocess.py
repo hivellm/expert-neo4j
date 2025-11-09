@@ -4,7 +4,7 @@ Neo4j Cypher Text2Query Dataset Preprocessing
 
 Converts HuggingFace datasets to expert-compatible format:
 - Validates Cypher syntax (optional)
-- Formats with ChatML for Qwen3
+- Formats with Qwen3 native format (<|im_start|>/<|im_end|>)
 - Deduplicates by question
 - Canonicalizes schema format
 """
@@ -12,9 +12,24 @@ Converts HuggingFace datasets to expert-compatible format:
 import argparse
 import json
 import re
+import sys
+import os
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from collections import defaultdict
+
+# Add experts root directory to path to import common utils
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../'))
+
+# Import common preprocessing utilities for query-only sanitization
+try:
+    from common_preprocessing_utils import sanitize_chatml_response, extract_query_only
+except ImportError:
+    # Fallback if common utils not found
+    def sanitize_chatml_response(text: str, query_type: str = "auto") -> str:
+        return text.strip()
+    def extract_query_only(text: str, query_type: str = "auto") -> str:
+        return text.strip()
 
 def load_dataset(dataset_name: str, split: str = "train"):
     """Load dataset from HuggingFace"""
@@ -71,16 +86,79 @@ def canonicalize_schema(schema: str) -> str:
     schema = re.sub(r'\s+\]', ']', schema)
     return schema
 
+def is_sql_or_sparql(text: str) -> bool:
+    """Detect if text is SQL or SPARQL (not Cypher)"""
+    if not text or not text.strip():
+        return False
+    
+    text_upper = text.upper().strip()
+    
+    # SQL keywords that are NOT Cypher
+    sql_keywords = ['SELECT', 'FROM', 'INSERT INTO', 'UPDATE', 'DELETE FROM', 
+                    'CREATE TABLE', 'ALTER TABLE', 'DROP TABLE', 'JOIN', 'INNER JOIN',
+                    'LEFT JOIN', 'RIGHT JOIN', 'FULL JOIN', 'GROUP BY', 'HAVING',
+                    'UNION ALL', 'EXISTS', 'NOT EXISTS', 'INNER', 'OUTER']
+    
+    # SPARQL keywords
+    sparql_keywords = ['PREFIX', 'SELECT', 'WHERE', 'FILTER', 'OPTIONAL', 
+                       'GRAPH', 'UNION', 'ASK', 'CONSTRUCT', 'DESCRIBE']
+    
+    # Check if starts with SQL/SPARQL keywords (strong indicator)
+    if text_upper.startswith(('SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE TABLE', 
+                               'ALTER', 'DROP', 'PREFIX', 'ASK', 'CONSTRUCT', 'DESCRIBE')):
+        return True
+    
+    # Check for SQL patterns
+    sql_patterns = [
+        r'\bFROM\s+\w+',  # FROM table
+        r'\bJOIN\s+\w+',  # JOIN table
+        r'\bGROUP\s+BY\b',  # GROUP BY
+        r'\bHAVING\s+',  # HAVING
+        r'\bINSERT\s+INTO\b',  # INSERT INTO
+        r'\bCREATE\s+TABLE\b',  # CREATE TABLE
+    ]
+    
+    for pattern in sql_patterns:
+        if re.search(pattern, text_upper):
+            return True
+    
+    # Check for SPARQL patterns
+    sparql_patterns = [
+        r'\bPREFIX\s+\w+:',  # PREFIX prefix:
+        r'\{\s*\?',  # { ?variable
+        r'\?\w+\s+\?\w+',  # ?var1 ?var2
+    ]
+    
+    for pattern in sparql_patterns:
+        if re.search(pattern, text_upper):
+            return True
+    
+    # If it has SQL keywords but no Cypher keywords, it's likely SQL
+    has_sql_kw = any(kw in text_upper for kw in sql_keywords)
+    has_cypher_kw = any(kw in text_upper for kw in ['MATCH', 'MERGE', 'RETURN', 'WITH', 'UNWIND'])
+    
+    if has_sql_kw and not has_cypher_kw:
+        return True
+    
+    return False
+
 def validate_cypher(cypher: str) -> bool:
-    """Basic Cypher validation (can be enhanced with neo4j driver)"""
+    """Basic Cypher validation (can be enhanced with neo4j driver)
+    
+    CRITICAL: Rejects SQL/SPARQL queries - only accepts Cypher.
+    """
     if not cypher or not cypher.strip():
+        return False
+    
+    # CRITICAL: Filter out SQL/SPARQL
+    if is_sql_or_sparql(cypher):
         return False
     
     # Check for basic Cypher keywords
     cypher_upper = cypher.upper()
     has_keyword = any(kw in cypher_upper for kw in [
         'MATCH', 'CREATE', 'MERGE', 'DELETE', 'SET', 'REMOVE',
-        'RETURN', 'WITH', 'WHERE', 'ORDER BY', 'LIMIT'
+        'RETURN', 'WITH', 'WHERE', 'ORDER BY', 'LIMIT', 'UNWIND'
     ])
     
     if not has_keyword:
@@ -96,16 +174,68 @@ def validate_cypher(cypher: str) -> bool:
     
     return True
 
-def format_chatml(question: str, cypher: str, schema: str = "", dialect: str = "cypher") -> str:
-    """Format example with ChatML for Qwen3"""
+def generate_brief_reasoning(question: str, cypher: str) -> str:
+    """Generate a brief reasoning statement for Qwen3 compatibility.
+    
+    Qwen3 uses hybrid reasoning, so we include concise reasoning that leads to the query.
+    This helps the model understand when to use reasoning vs direct output.
+    """
+    # Extract key information from question and Cypher
+    cypher_upper = cypher.upper()
+    
+    # Detect what the query is doing
+    if 'MATCH' in cypher_upper:
+        if 'RETURN' in cypher_upper:
+            if 'COUNT' in cypher_upper or 'count(' in cypher.lower():
+                reasoning = f"I need to count entities matching the pattern."
+            elif 'ORDER BY' in cypher_upper:
+                reasoning = f"I need to find and sort entities based on the criteria."
+            else:
+                reasoning = f"I need to find entities matching the pattern and return the specified properties."
+        else:
+            reasoning = f"I need to match entities based on the given criteria."
+    elif 'CREATE' in cypher_upper:
+        reasoning = f"I need to create new nodes or relationships."
+    elif 'MERGE' in cypher_upper:
+        reasoning = f"I need to merge or create nodes/relationships if they don't exist."
+    elif 'DELETE' in cypher_upper:
+        reasoning = f"I need to delete nodes or relationships matching the pattern."
+    else:
+        reasoning = f"I need to construct a Cypher query to answer the question."
+    
+    return reasoning
+
+def format_chatml(question: str, cypher: str, schema: str = "", dialect: str = "cypher", include_reasoning: bool = False) -> str:
+    """Format example with Qwen3 native format (<|im_start|>/<|im_end|>)
+    
+    Args:
+        include_reasoning: If True, wraps Cypher in <think> block for Qwen3 compatibility.
+                          Qwen3 uses hybrid reasoning, so some examples should include reasoning blocks.
+    """
     system_content = f"Dialect: {dialect}"
     if schema:
         system_content += f"\nSchema:\n{schema}"
     
+    # CRITICAL: Sanitize Cypher to ensure query-only (no explanatory text)
+    cypher_clean = sanitize_chatml_response(cypher, query_type="cypher")
+    if not cypher_clean:
+        # Fallback: try to extract from original
+        cypher_clean = extract_query_only(cypher, query_type="cypher")
+    
+    # For Qwen3 compatibility: optionally wrap in reasoning block
+    # Qwen3 uses hybrid reasoning, so mixing reasoning and direct outputs helps training
+    if include_reasoning:
+        # Generate a brief reasoning that leads to the Cypher query
+        reasoning = generate_brief_reasoning(question, cypher_clean)
+        assistant_content = f"<think>\n{reasoning}\n</think>\n{cypher_clean}"
+    else:
+        assistant_content = cypher_clean
+    
+    # Qwen3 format: <|im_start|>role\ncontent<|im_end|>
     return (
-        f"<|system|>\n{system_content}\n<|end|>\n"
-        f"<|user|>\n{question}\n<|end|>\n"
-        f"<|assistant|>\n{cypher}\n<|end|>"
+        f"<|im_start|>system\n{system_content}<|im_end|>\n"
+        f"<|im_start|>user\n{question}<|im_end|>\n"
+        f"<|im_start|>assistant\n{assistant_content}<|im_end|>\n"
     )
 
 def format_simple(question: str, cypher: str, schema: str = "") -> Dict[str, str]:
@@ -121,16 +251,30 @@ def format_simple(question: str, cypher: str, schema: str = "") -> Dict[str, str
     }
 
 def extract_cypher_from_chatml(text: str) -> str:
-    """Extract Cypher query from ChatML text."""
-    # Try standard ChatML format
+    """Extract Cypher query from ChatML or Qwen3 format text."""
+    # Try Qwen3 format first (<|im_start|>assistant\n...<|im_end|>)
+    match = re.search(r'<\|im_start\|>assistant\n(.*?)<\|im_end\|>', text, re.DOTALL)
+    if match:
+        cypher = match.group(1).strip()
+        if cypher:
+            return cypher
+    
+    # Try standard ChatML format (<|assistant|>\n...<|end|>)
     match = re.search(r'<\|assistant\|>\s*\n(.*?)\n<\|end\|>', text, re.DOTALL)
     if match:
         cypher = match.group(1).strip()
         if cypher:
             return cypher
     
-    # Try without newline after assistant tag
+    # Try without newline after assistant tag (ChatML)
     match = re.search(r'<\|assistant\|>(.*?)<\|end\|>', text, re.DOTALL)
+    if match:
+        cypher = match.group(1).strip()
+        if cypher:
+            return cypher
+    
+    # Try Qwen3 format without newline
+    match = re.search(r'<\|im_start\|>assistant(.*?)<\|im_end\|>', text, re.DOTALL)
     if match:
         cypher = match.group(1).strip()
         if cypher:
@@ -141,6 +285,16 @@ def extract_cypher_from_chatml(text: str) -> str:
     if match:
         cypher = match.group(1).strip()
         cypher = re.sub(r'<\|end\|>.*', '', cypher, flags=re.DOTALL).strip()
+        if cypher and (cypher.upper().startswith('MATCH') or cypher.upper().startswith('CREATE') or 
+                      cypher.upper().startswith('MERGE') or cypher.upper().startswith('DELETE') or
+                      cypher.upper().startswith('RETURN') or cypher.upper().startswith('WITH')):
+            return cypher
+    
+    # Try Qwen3 fallback
+    match = re.search(r'<\|im_start\|>assistant(.*)', text, re.DOTALL)
+    if match:
+        cypher = match.group(1).strip()
+        cypher = re.sub(r'<\|im_end\|>.*', '', cypher, flags=re.DOTALL).strip()
         if cypher and (cypher.upper().startswith('MATCH') or cypher.upper().startswith('CREATE') or 
                       cypher.upper().startswith('MERGE') or cypher.upper().startswith('DELETE') or
                       cypher.upper().startswith('RETURN') or cypher.upper().startswith('WITH')):
@@ -188,7 +342,7 @@ def detect_cypher_type(cypher: str) -> str:
     else:
         return "OTHER"
 
-def rebalance_cypher_types(examples: List[Dict[str, Any]], target_match_ratio: float = 0.90, target_call_ratio: float = 0.05, min_total_examples: int = 5000) -> List[Dict[str, Any]]:
+def rebalance_cypher_types(examples: List[Dict[str, Any]], target_match_ratio: float = 0.90, target_call_ratio: float = 0.05, min_total_examples: int = 10000) -> List[Dict[str, Any]]:
     """
     Rebalance Cypher command types by reducing MATCH and CALL examples.
     
@@ -196,7 +350,7 @@ def rebalance_cypher_types(examples: List[Dict[str, Any]], target_match_ratio: f
         examples: List of examples with 'text' field
         target_match_ratio: Target ratio for MATCH (default: 0.90 = 90%)
         target_call_ratio: Target max ratio for CALL (default: 0.05 = 5%)
-        min_total_examples: Minimum total examples to include (default: 5000)
+        min_total_examples: Minimum total examples to include (default: 10000)
     
     Returns:
         Rebalanced list of examples
@@ -453,39 +607,78 @@ def process_dataset(
     processed = []
     seen_questions = set()
     stats = defaultdict(int)
+    reasoning_counter = 0  # Counter for reasoning distribution
     
     for idx, example in enumerate(examples):
         try:
-            # Check if already in ChatML format (has "text" field)
+            # Check if already in ChatML/Qwen3 format (has "text" field)
             if "text" in example and example["text"]:
                 text = example["text"]
-                # Extract question from ChatML for deduplication
-                question_match = re.search(r'<\|user\|>\s*\n(.*?)\n<\|end\|>', text, re.DOTALL)
+                # Extract question from Qwen3 format first (<|im_start|>user\n...<|im_end|>)
+                question_match = re.search(r'<\|im_start\|>user\n(.*?)<\|im_end\|>', text, re.DOTALL)
                 if question_match:
                     question = question_match.group(1).strip()
                 else:
-                    # Fallback: extract from user tag without newline
-                    question_match = re.search(r'<\|user\|>(.*?)<\|end\|>', text, re.DOTALL)
+                    # Try ChatML format (<|user|>\n...<|end|>)
+                    question_match = re.search(r'<\|user\|>\s*\n(.*?)\n<\|end\|>', text, re.DOTALL)
                     if question_match:
                         question = question_match.group(1).strip()
                     else:
-                        question = text[:100]  # Fallback: use first 100 chars
+                        # Fallback: extract from user tag without newline (ChatML)
+                        question_match = re.search(r'<\|user\|>(.*?)<\|end\|>', text, re.DOTALL)
+                        if question_match:
+                            question = question_match.group(1).strip()
+                        else:
+                            # Try Qwen3 without newline
+                            question_match = re.search(r'<\|im_start\|>user(.*?)<\|im_end\|>', text, re.DOTALL)
+                            if question_match:
+                                question = question_match.group(1).strip()
+                            else:
+                                question = text[:100]  # Fallback: use first 100 chars
                 
-                # Extract cypher for validation
-                cypher = extract_cypher_from_chatml(text)
+                # Extract cypher for validation (sanitize to query-only)
+                cypher_raw = extract_cypher_from_chatml(text)
+                # CRITICAL: Sanitize to ensure query-only response
+                cypher = sanitize_chatml_response(cypher_raw, query_type="cypher")
+                if not cypher:
+                    cypher = extract_query_only(cypher_raw, query_type="cypher")
                 
-                # Validate Cypher if requested
+                # CRITICAL: Filter out SQL/SPARQL queries
+                if is_sql_or_sparql(cypher):
+                    stats['sql_sparql_filtered'] += 1
+                    continue
+                
+                # Validate Cypher if requested (also filters SQL/SPARQL)
                 if validate and cypher and not validate_cypher(cypher):
                     stats['invalid_cypher'] += 1
                     continue
                 
-                # Deduplicate by question
-                if not no_deduplicate:
-                    question_key = question.strip().lower()
-                    if question_key in seen_questions:
-                        stats['duplicates'] += 1
-                        continue
-                    seen_questions.add(question_key)
+                # Rebuild ChatML with sanitized Cypher
+                if format_type == "chatml":
+                    # Extract question and schema from original text
+                    question_match = re.search(r'<\|im_start\|>user\n(.*?)<\|im_end\|>', text, re.DOTALL)
+                    question = question_match.group(1).strip() if question_match else ""
+                    system_match = re.search(r'<\|im_start\|>system\n(.*?)<\|im_end\|>', text, re.DOTALL)
+                    system_content = system_match.group(1).strip() if system_match else f"Dialect: {dialect}"
+                    
+                    # Extract schema from system content if present
+                    schema = ""
+                    if "Schema:" in system_content:
+                        schema = system_content.split("Schema:")[-1].strip()
+                    
+                    # Deduplicate by question (BEFORE generating reasoning)
+                    if not no_deduplicate:
+                        question_key = question.strip().lower()
+                        if question_key in seen_questions:
+                            stats['duplicates'] += 1
+                            continue
+                        seen_questions.add(question_key)
+                    
+                    # Rebuild with clean Cypher
+                    # Qwen3 uses hybrid reasoning: 75% reasoning + 25% direct (as per Qwen3 training notebook)
+                    include_reasoning = (reasoning_counter % 4 != 0)  # 75% with reasoning (3 out of 4)
+                    reasoning_counter += 1
+                    text = format_chatml(question, cypher, schema, dialect, include_reasoning=include_reasoning)
                 
                 # Format example (already in ChatML)
                 if format_type == "chatml":
@@ -540,12 +733,31 @@ def process_dataset(
                     continue
                 seen_questions.add(question_key)
             
-            # Format example
+            # CRITICAL: Sanitize Cypher to ensure query-only (no reasoning/explanation)
+            cypher_clean = sanitize_chatml_response(cypher, query_type="cypher")
+            if not cypher_clean:
+                cypher_clean = extract_query_only(cypher, query_type="cypher")
+            
+            # CRITICAL: Filter out SQL/SPARQL queries
+            if is_sql_or_sparql(cypher_clean):
+                stats['sql_sparql_filtered'] += 1
+                continue
+            
+            # Validate Cypher (also filters SQL/SPARQL)
+            if validate and not validate_cypher(cypher_clean):
+                stats['invalid_cypher'] += 1
+                continue
+            
+            # Format example with sanitized Cypher
+            # Qwen3 uses hybrid reasoning: 75% reasoning + 25% direct (as per Qwen3 training notebook)
+            include_reasoning = (reasoning_counter % 4 != 0)  # 75% with reasoning (3 out of 4)
+            reasoning_counter += 1
+            
             if format_type == "chatml":
-                text = format_chatml(question, cypher, schema, dialect)
+                text = format_chatml(question, cypher_clean, schema, dialect, include_reasoning=include_reasoning)
                 processed.append({"text": text})
             else:
-                formatted = format_simple(question, cypher, schema)
+                formatted = format_simple(question, cypher_clean, schema)
                 processed.append(formatted)
             
             stats['processed'] += 1
@@ -578,7 +790,7 @@ def process_dataset(
                     cypher_type = detect_cypher_type(cypher)
                     before_types[cypher_type] += 1
             
-            rebalanced_list = rebalance_cypher_types(examples_list, target_match_ratio, target_call_ratio, min_total_examples=5000)
+            rebalanced_list = rebalance_cypher_types(examples_list, target_match_ratio, target_call_ratio, min_total_examples=10000)
             
             # Count types after
             after_types = Counter()
@@ -621,6 +833,7 @@ def process_dataset(
         "skipped": {
             "missing_fields": stats['missing_fields'],
             "invalid_cypher": stats['invalid_cypher'],
+            "sql_sparql_filtered": stats.get('sql_sparql_filtered', 0),
             "duplicates": stats['duplicates'],
             "errors": stats['errors']
         }
@@ -636,6 +849,7 @@ def process_dataset(
     print(f"Total examples:     {len(examples)}")
     print(f"Processed:          {stats['processed']}")
     print(f"Missing fields:     {stats['missing_fields']}")
+    print(f"SQL/SPARQL filtered: {stats.get('sql_sparql_filtered', 0)}")
     if validate:
         print(f"Invalid Cypher:     {stats['invalid_cypher']}")
     if not no_deduplicate:

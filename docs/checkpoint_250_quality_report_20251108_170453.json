@@ -1,0 +1,200 @@
+{
+  "checkpoint": "F:\\Node\\hivellm\\expert\\experts\\expert-neo4j\\weights\\qwen3-06b\\checkpoint-250",
+  "timestamp": "2025-11-08T17:04:53.437549",
+  "summary": {
+    "avg_base_score": 0.505,
+    "avg_checkpoint_score": 0.3466666666666667,
+    "improvement": -0.15833333333333333,
+    "improvement_percent": -31.35313531353135,
+    "base_valid_count": 4,
+    "checkpoint_valid_count": 3,
+    "total_tests": 4
+  },
+  "results": {
+    "base": [
+      {
+        "test_name": "Simple MATCH query",
+        "cypher": "<think>\nOkay, the user wants to find all people. Let me check the schema provided. The schema has a Node property called 'Person' with 'name' and 'age'. There are no relationships mentioned, so the data is just the Person node.\n\nThe user didn't specify any filters or conditions, so I should return all people without any additional constraints. I need to make sure there's no ambiguity here. Since the relationships are empty, there's no way to query further. The answer should list all people as per the schema.\n</think>\n\nAll people are listed in the 'Person' node with their respective 'name' and 'age' attributes. No further filtering or conditions are specified, so the result includes all existing individuals.",
+        "analysis": {
+          "is_valid": true,
+          "keyword_count": 2,
+          "keyword_total": 3,
+          "keyword_score": 0.6666666666666666,
+          "missing_keywords": [
+            "MATCH"
+          ],
+          "has_return": true,
+          "has_match": false,
+          "length_ok": false,
+          "quality_score": 0.6666666666666667,
+          "length": 716
+        }
+      },
+      {
+        "test_name": "MATCH with WHERE filter",
+        "cypher": "<think>\nOkay, let's see. The user wants to find people older than 30. The schema provided has a Node with properties like name and age, and no relationships. So I need to check if there's any way to retrieve people who are over 30 based on their age.\n\nFirst, I should look at the Node properties. The age is an integer, so I can compare that to 30. The question is, how does the data structure handle this? Since there are no relationships, the data is directly in the Person node. So, perhaps the answer is to filter the Person nodes where age is greater than 30.\n\nWait, but the user didn't provide any specific data. Maybe they just want a general approach. So the answer would be to select people whose age is older than 30. If there's a way to query this in the schema, like using a WHERE clause or a filter, but since there are no relationships, the",
+        "analysis": {
+          "is_valid": true,
+          "keyword_count": 3,
+          "keyword_total": 5,
+          "keyword_score": 0.6,
+          "missing_keywords": [
+            "MATCH",
+            "RETURN"
+          ],
+          "has_return": false,
+          "has_match": false,
+          "length_ok": false,
+          "quality_score": 0.46,
+          "length": 854
+        }
+      },
+      {
+        "test_name": "Relationship traversal",
+        "cypher": "<think>\nOkay, the user is asking to find all actors in movies. Let me think about how to approach this.\n\nFirst, I need to look at the schema provided. There's a Node called 'Person' with a 'name' property, and a 'Movie' node that has a 'title'. The relationships are defined as a 'Person' connected via an edge to a 'Movie' via the 'ACTED_IN' relationship. \n\nSo, the task is to find all actors (people) who have acted in any movie. The answer should list each person's name and their associated movie titles. \n\nI need to make sure that the query correctly joins the Person and Movie nodes. Since each Person can have multiple Movie entries, the result should include each Person's name and the titles of the movies they've acted in. \n\nI should check if there are any other relationships or filters mentioned, but the user's query doesn't specify any additional constraints. Therefore, the query should simply",
+        "analysis": {
+          "is_valid": true,
+          "keyword_count": 3,
+          "keyword_total": 5,
+          "keyword_score": 0.6,
+          "missing_keywords": [
+            "MATCH",
+            "RETURN"
+          ],
+          "has_return": false,
+          "has_match": false,
+          "length_ok": false,
+          "quality_score": 0.46,
+          "length": 908
+        }
+      },
+      {
+        "test_name": "Aggregation COUNT",
+        "cypher": "<think>\nOkay, the user wants me to count the total number of users. Let me check the information provided. The schema mentions a Node property called User with a name field. But there are no relationships listed, so I don't see any connections or data related to users. Since the user is asking for a count, but there's only a name field, I can't calculate the total users without additional data. I should inform the user that I don't have the necessary information to perform this task.\n</think>\n\nI don't have access to user data or a list of users in the system. Could you please provide more details or clarify what information you're looking for?",
+        "analysis": {
+          "is_valid": true,
+          "keyword_count": 1,
+          "keyword_total": 3,
+          "keyword_score": 0.3333333333333333,
+          "missing_keywords": [
+            "MATCH",
+            "RETURN"
+          ],
+          "has_return": false,
+          "has_match": false,
+          "length_ok": false,
+          "quality_score": 0.43333333333333335,
+          "length": 651
+        }
+      }
+    ],
+    "checkpoint": [
+      {
+        "test_name": "Simple MATCH query",
+        "cypher": "<think>\nOkay, the user wants me to find all people from the schema provided. Let me check the relationships. There's no relationship listed for the Person node, so how do I retrieve all people? Hmm, maybe I should list the properties of the Person node since there are no relationships involved. The properties include name and age. So the answer should be a list of those two values. Wait, but maybe the user is expecting some data from the relationships, but since there are none, I can't do that. So the correct response is to list the properties of Person without any relationships. Alright, let me format that properly.\n</think>\n\nThe properties of the `Person` node are: `name` and `age`.",
+        "analysis": {
+          "is_valid": true,
+          "keyword_count": 1,
+          "keyword_total": 3,
+          "keyword_score": 0.3333333333333333,
+          "missing_keywords": [
+            "MATCH",
+            "RETURN"
+          ],
+          "has_return": false,
+          "has_match": false,
+          "length_ok": false,
+          "quality_score": 0.43333333333333335,
+          "length": 693
+        }
+      },
+      {
+        "test_name": "MATCH with WHERE filter",
+        "cypher": "<think>\nOkay, I need to find people who are older than 30. Let me think about how to approach this. The user mentioned using Cypher, so I should look at the relationships and properties of the nodes. The Person node has a 'name' and an 'age' property. The relationships might include properties like age, but the problem here is that the relationships are not specified. Wait, maybe the relationships are linked through properties, but since the user didn't provide any relationships, how do I query this? Hmm, perhaps the relationships are not relevant here. Wait, maybe the relationships are such that the age is stored as a property of the Person node. But how would that work? For example, if there's a relationship where the Person node has a property named 'age', then using that property would allow me to filter for values greater than 30. However, the problem is that the user hasn't provided any relationships. Wait, maybe there's a default",
+        "analysis": {
+          "is_valid": false,
+          "keyword_count": 3,
+          "keyword_total": 5,
+          "keyword_score": 0.6,
+          "missing_keywords": [
+            "MATCH",
+            "RETURN"
+          ],
+          "has_return": false,
+          "has_match": false,
+          "length_ok": false,
+          "quality_score": 0.06,
+          "length": 950
+        }
+      },
+      {
+        "test_name": "Relationship traversal",
+        "cypher": "<think>\nOkay, I need to find all actors who have acted in movies. Let's start by looking at the schema. There's a Node called Person with a name property, and a Relationship (:Person)-[:ACTED_IN]->(:Movie). So the key here is to find the names of the people (actors) that have at least one movie linked through this relationship. Since I can't query directly, I'll need to traverse the relationships to find any connections and then extract the names. Wait, but how do I ensure that each Person has at least one Movie? Maybe the relationships are bidirectional, but perhaps each Person can have zero or more movies. But since the problem says \"movies,\" maybe each Person can be associated with multiple movies. However, the user's query is just to find actors, not movies. So regardless of how many movies they appear in, I need to collect their names. But how do I retrieve those names? The relationships are connected, so perhaps the",
+        "analysis": {
+          "is_valid": true,
+          "keyword_count": 3,
+          "keyword_total": 5,
+          "keyword_score": 0.6,
+          "missing_keywords": [
+            "MATCH",
+            "RETURN"
+          ],
+          "has_return": false,
+          "has_match": false,
+          "length_ok": false,
+          "quality_score": 0.46,
+          "length": 935
+        }
+      },
+      {
+        "test_name": "Aggregation COUNT",
+        "cypher": "<think>\nOkay, so I need to count the total number of users based on the schema provided. Let me start by understanding what relationships exist between nodes. The User node has properties like name, and there are no relationships listed. Wait, but maybe there's a typo or missing relationship? Let me check again. The user schema has a User node with a name property. The relationships section lists nothing. So there are no relationships connected to User, meaning there are no edges leading into or out of User. Therefore, the count of users should be 1, since there's only one User node. But wait, maybe the problem expects considering User as a node with no children or parents, so even if it's a singleton, it counts as one user. Yeah, that makes sense. So the answer should be 1.\n</think>\n\n1",
+        "analysis": {
+          "is_valid": true,
+          "keyword_count": 1,
+          "keyword_total": 3,
+          "keyword_score": 0.3333333333333333,
+          "missing_keywords": [
+            "MATCH",
+            "RETURN"
+          ],
+          "has_return": false,
+          "has_match": false,
+          "length_ok": false,
+          "quality_score": 0.43333333333333335,
+          "length": 797
+        }
+      }
+    ],
+    "comparison": [
+      {
+        "test_name": "Simple MATCH query",
+        "base_score": 0.6666666666666667,
+        "checkpoint_score": 0.43333333333333335,
+        "improvement": -0.2333333333333334,
+        "improvement_percent": -35.0
+      },
+      {
+        "test_name": "MATCH with WHERE filter",
+        "base_score": 0.46,
+        "checkpoint_score": 0.06,
+        "improvement": -0.4,
+        "improvement_percent": -86.95652173913044
+      },
+      {
+        "test_name": "Relationship traversal",
+        "base_score": 0.46,
+        "checkpoint_score": 0.46,
+        "improvement": 0.0,
+        "improvement_percent": 0.0
+      },
+      {
+        "test_name": "Aggregation COUNT",
+        "base_score": 0.43333333333333335,
+        "checkpoint_score": 0.43333333333333335,
+        "improvement": 0.0,
+        "improvement_percent": 0.0
+      }
+    ]
+  }
+}

@@ -1,0 +1,206 @@
+{
+  "generated_at_utc": "20251108_213517",
+  "cli_path": "F:\\Node\\hivellm\\expert\\cli\\target\\release\\expert-cli.exe",
+  "experts": {
+    "current": "expert-neo4j",
+    "v0.1.1": "expert-neo4j@0.1.1"
+  },
+  "results": [
+    {
+      "id": "match_001",
+      "category": "basic_match",
+      "system_prompt": "Dialect: cypher\nSchema:\nNode properties:\n- **Person**\n  - `name`: STRING\n  - `age`: INTEGER\nRelationships:\nNone",
+      "user_prompt": "Find all people",
+      "current": {
+        "returncode": 0,
+        "output": "with name and age. Relationships are none. So the query would be to find all nodes of type Person. But if there are no relationships, maybe the answer is that no people are present. However, perhaps the user expects that the Cypher query is structured"
+      },
+      "v0.1.1": {
+        "returncode": 0,
+        "output": "First, I need to make sure I understand the structure correctly. The relationships are listed as None, which means there are no connections or relationships between the nodes. Therefore, all the nodes in the graph will be people as per the schema.\n\nSince there's no additional information or constraints provided, I can assume that the query is to list all the nodes in the Person schema. The user might be looking for a list of all people in the graph, possibly in a specific format or dataset. Without more details, I should present the answer as all people as per the given schema.\n\nI should also check if there are any default values or if the schema is empty, but based on the provided schema, it's clear that only the"
+      }
+    },
+    {
+      "id": "match_002",
+      "category": "basic_match",
+      "system_prompt": "Dialect: cypher\nSchema:\nNode properties:\n- **Movie**\n  - `title`: STRING\n  - `released`: INTEGER\nRelationships:\nNone",
+      "user_prompt": "List all movies",
+      "current": {
+        "returncode": 0,
+        "output": "return an empty list, but the system prompt says to list all movies. Hmm, maybe there's a misunderstanding here. Let me confirm again. The user provided the schema, and the task is to list all movies. If the schema doesn't have any data, perhaps the"
+      },
+      "v0.1.1": {
+        "returncode": 0,
+        "output": "with title and released properties, but no relationships"
+      }
+    },
+    {
+      "id": "where_001",
+      "category": "where_filter",
+      "system_prompt": "Dialect: cypher\nSchema:\nNode properties:\n- **Person**\n  - `name`: STRING\n  - `age`: INTEGER\nRelationships:\nNone",
+      "user_prompt": "Find people older than 30",
+      "current": {
+        "returncode": 0,
+        "output": "select nodes where the age is more than 30. But without actual data, I can't run the query. However, the user might be expecting a way to express"
+      },
+      "v0.1.1": {
+        "returncode": 0,
+        "output": "First, I need to make sure I understand the structure. The relationships are none, so there are no directed edges. The query should be a SELECT statement on the Node where the age is greater than 30. \n\nWait, but how do I represent that in Cypher? The standard way would be to use the 'WHERE' clause. For example, something like:\n\nMATCH (p:Person WHERE age > 30)\n\nThat should return all people who are older than 30. I need to check if there are any constraints or additional parameters, but the user hasn't mentioned anything else. So the answer should be that the Cypher query would be MATCH (p:Person WHERE age > 30).\n</"
+      }
+    },
+    {
+      "id": "where_002",
+      "category": "where_filter",
+      "system_prompt": "Dialect: cypher\nSchema:\nNode properties:\n- **Product**\n  - `name`: STRING\n  - `price`: FLOAT\nRelationships:\nNone",
+      "user_prompt": "Find products with price less than 100",
+      "current": {
+        "returncode": 0,
+        "output": "with numbers? I think it's possible to use a condition like price < 100"
+      },
+      "v0.1.1": {
+        "returncode": 0,
+        "output": "selects the 'name' and 'price' properties from the 'Product' nodes where the price is less than 100. The basic structure would be SELECT * FROM Product WHERE price < 100"
+      }
+    },
+    {
+      "id": "rel_001",
+      "category": "relationship",
+      "system_prompt": "Dialect: cypher\nSchema:\nNode properties:\n- **Movie**\n  - `title`: STRING\n- **Person**\n  - `name`: STRING\nRelationships:\n(:Person)-[:ACTED_IN]->(:Movie)",
+      "user_prompt": "Find all actors in movies",
+      "current": {
+        "returncode": 0,
+        "output": "First, I need to figure out how to represent this in Cypher. The key is to find all Person nodes that have a relationship to at least one Movie node. The relationship is ACTED_IN, so I should look for all Person nodes and see if they are connected to any Movie nodes via that edge.\n\nIn Cypher, this would be something like selecting all Person nodes where there exists a Movie node connected to them via ACTED_IN. The query would be something like:\n\nMATCH (Person)-[:ACTED_IN]->(Movie)\n\nBut wait, the user might be looking for specific details. The schema includes properties for both Person and Movie. So, the result should include all the actors (Person) and"
+      },
+      "v0.1.1": {
+        "returncode": 0,
+        "output": "So, the task is to find all actors (Person) that have at least one movie (Movie) where they are an actor. The relationships are set up so that each Person can have multiple Movie entries through the ACTED_IN edge. \n\nWait, but how do I get the actors? Since each Person is connected to multiple Movies, maybe I need to find all the Person nodes that have at least one Movie entry. But how to do that in Cypher? \n\nHmm, perhaps I should start by finding all the Movie nodes and then look for Person nodes that are connected to them. But since the relationship is between Person and Movie, maybe I need to find all Person nodes that have a Movie connected to"
+      }
+    },
+    {
+      "id": "rel_002",
+      "category": "relationship",
+      "system_prompt": "Dialect: cypher\nSchema:\nNode properties:\n- **Person**\n  - `name`: STRING\nRelationships:\n(:Person)-[:KNOWS]->(:Person)",
+      "user_prompt": "Find people who know each other",
+      "current": {
+        "returncode": 0,
+        "output": "MATCH (p:Person)-[:KNOWS]->(q:Person) RETURN p, q"
+      },
+      "v0.1.1": {
+        "returncode": 0,
+        "output": "First, I need to figure out how to represent this in Cypher. The relationships are between two Person nodes, so if I can find a way to connect these two nodes, I can find the people who know each other. But wait, how do I retrieve the people who know each other? Maybe by looking at the relationship between Person nodes. For example, if Person A knows Person B, then there should be a path from A to B through the KNOWS relationship.\n\nBut how do I find all such pairs? Maybe I need to perform a traversal from each Person node to see if there's a path that includes"
+      }
+    },
+    {
+      "id": "agg_001",
+      "category": "aggregation",
+      "system_prompt": "Dialect: cypher\nSchema:\nNode properties:\n- **User**\n  - `name`: STRING\nRelationships:\nNone",
+      "user_prompt": "Count total users",
+      "current": {
+        "returncode": 0,
+        "output": "without any data points, how can I proceed? Is there a default value or assumption? The user might have intended to provide some data, but in the"
+      },
+      "v0.1.1": {
+        "returncode": 0,
+        "output": "First, I need to check if there are any users in the schema. The 'User' node doesn't have any properties other than 'name', and there are no relationships defined. So, unless there's a default value or a way to infer the count, the total number of users should be 1. \n\nWait, maybe the user is expecting to see a count of 1. Since the schema only has a single node with a 'User' property, and no other information, the count should be 1. I should confirm that there's no other nodes or relationships that might affect this count. But according to the given schema, there's only one node. So the answer should be 1.\n</"
+      }
+    },
+    {
+      "id": "agg_002",
+      "category": "aggregation",
+      "system_prompt": "Dialect: cypher\nSchema:\nNode properties:\n- **Order**\n  - `total`: FLOAT\nRelationships:\n(:Customer)-[:PLACED]->(:Order)",
+      "user_prompt": "Sum of all order totals",
+      "current": {
+        "returncode": 0,
+        "output": "First, I should parse the schema. The Node has an Order property, which is a FLOAT. The Relationships are defined as Customer connected to Order. The Sum of all order totals might be a query that sums up the Order values from the Customer-Order relationships. \n\nWait, the relationships are (:Customer)-[:PLACED]->(:Order). So each Customer has a PLACED relationship to an Order. But the user wants the sum of all order totals. Unless there's a way to aggregate the Order totals across all such relationships, which would mean summing the total of each Order. \n\nBut how does the schema handle this? The Order property is a FLOAT, so if each Order has a value, adding them all would give"
+      },
+      "v0.1.1": {
+        "returncode": 0,
+        "output": "First, I need to understand the structure. The schema has a Node called 'Customer' with a property 'Order' of type FLOAT, and a relationship (:Customer)-[:PLACED]->(:Order). The sum of all order totals seems to be the total of all 'Order' values for customers who have placed orders.\n\nWait, but how do I get the order totals? The 'Order' node has a total property. So maybe each order has an associated 'total' value, and I need to sum all those totals for all customers. \n\nBut the user's schema mentions 'Order' as a relationship. So perhaps each time a Customer places an Order, the Order node's total is added. But how do I collect all the order totals? Maybe the 'total' property is a separate node, and"
+      }
+    },
+    {
+      "id": "order_001",
+      "category": "ordering",
+      "system_prompt": "Dialect: cypher\nSchema:\nNode properties:\n- **Product**\n  - `name`: STRING\n  - `price`: FLOAT\nRelationships:\nNone",
+      "user_prompt": "Find top 5 most expensive products",
+      "current": {
+        "returncode": 0,
+        "output": "So, the task is to retrieve the product with the highest price. Since there are no relationships defined, I can assume that each product is a separate node. The user probably wants to find the product with the highest 'price' among all existing entries. \n\nI should check if there's a way to query this in Cypher. The basic structure would be to find all nodes where the 'price' is maximum. But since there's no 'max' operation in Cypher, I need to handle this with a limit. Maybe using LIMIT 5 to get the top 5 results. \n\nWait, but the user might expect the system to handle this automatically. Since there's no"
+      },
+      "v0.1.1": {
+        "returncode": 0,
+        "output": "with each product as a separate node, then maybe we can query for all products, sort them by price in descending order, and take the top 5. However, if the data is stored in a way that multiple products share the same name, we need to ensure we're selecting unique entries. But the problem"
+      }
+    },
+    {
+      "id": "order_002",
+      "category": "ordering",
+      "system_prompt": "Dialect: cypher\nSchema:\nNode properties:\n- **Employee**\n  - `name`: STRING\n  - `salary`: FLOAT\nRelationships:\nNone",
+      "user_prompt": "Show the 3 highest paid employees",
+      "current": {
+        "returncode": 0,
+        "output": "First, I need to figure out how to retrieve the employees' salaries. Since there are no relationships specified, the data should be stored in a way that allows selecting the highest salaries. But wait, the schema only has Node properties, not relationships. That means the data might be stored in a way that's not connected to other nodes, or maybe as a list of employees. \n\nWait, the relationships are none, so maybe the data is already in a list. So the task is to find the three employees with the highest salaries. But how to do that? If the data is stored in a single node with name and salary, but there are multiple employees, perhaps we need to query the graph for the top 3 salaries.\n\nBut the problem is that the schema doesn't mention"
+      },
+      "v0.1.1": {
+        "returncode": 0,
+        "output": "Since there are no relationships, I don't need to use any Cypher queries for that. The task is straightforward. The user is asking for the three highest salaries, so I should list the employees with their salaries in descending order. I need to make sure the output is in the correct format, maybe as a list. Let me confirm the schema again to ensure there are no typos. Yes, 'salary' is a float, so that's correct. Alright, I can present the answer as three entries with their salaries, ordered from highest to lowest.\n</|assistant|>\n\n**Answer:**\n- Employee: John Doe, Salary: 12"
+      }
+    },
+    {
+      "id": "multihop_001",
+      "category": "multi_hop",
+      "system_prompt": "Dialect: cypher\nSchema:\nNode properties:\n- **Person**\n  - `name`: STRING\nRelationships:\n(:Person)-[:KNOWS]->(:Person)\n(:Person)-[:FOLLOWS]->(:Person)",
+      "user_prompt": "Find people who know someone who follows another person",
+      "current": {
+        "returncode": 0,
+        "output": "First, I need to model the relationships correctly. The schema has a Person node with a name property and relationships like KNOWS and FOLLOWS. The goal is to find people who know someone who follows another person. So, the structure should involve a chain of relationships: someone knows another person, that person follows another person, and the one who knows the follower is the target of interest.\n\nSo, the approach would be to find the follower of someone, then find the person who knows that follower. Let me think about how to represent this in Cypher.\n\nLet me outline the steps:\n\n1. Find a person who follows someone.\n2. Then, find that person who knows the follower.\n\nBut how do I represent this in a Cypher query? Let's think about the relationships. The relationships are directed, so"
+      },
+      "v0.1.1": {
+        "returncode": 0,
+        "output": "First, there's a Node property called Person with name, and relationships: KNOWS and FOLLOWS. The relationships are directed. So, the structure is a graph where each person has a knowledge and follows relationship.\n\nThe goal is to find people who know someone who follows another person. So, maybe it's a chain: person A knows person B, and person B follows person C. So the target is to find person C, which is connected to person B via the FOLLOWS relationship, and person B is connected to person A via the KNOWS relationship.\n\nTo find this, I need to look for all nodes that have a person who has a KNOWS relationship to someone who has a FOLLOWS relationship. So, the steps would be:\n\n1. Find all people who have a KNOWS relationship.\n2"
+      }
+    },
+    {
+      "id": "complex_001",
+      "category": "complex",
+      "system_prompt": "Dialect: cypher\nSchema:\nNode properties:\n- **Person**\n  - `name`: STRING\n  - `age`: INTEGER\n  - `city`: STRING\nRelationships:\nNone",
+      "user_prompt": "Find people aged between 25 and 40 living in New York",
+      "current": {
+        "returncode": 0,
+        "output": "MATCH (n:Person) WHERE n.age BETWEEN 25 AND 40 AND n.city = \"New York\"."
+      },
+      "v0.1.1": {
+        "returncode": 0,
+        "output": "MATCH (Person:Person WHERE age BETWEEN 25 AND 40 AND city = 'New York') RETURN"
+      }
+    },
+    {
+      "id": "pattern_001",
+      "category": "pattern",
+      "system_prompt": "Dialect: cypher\nSchema:\nNode properties:\n- **Business**\n  - `name`: STRING\n  - `category`: STRING\nRelationships:\n(:Business)-[:LOCATED_IN]->(:City)",
+      "user_prompt": "Find all restaurants in cities",
+      "current": {
+        "returncode": 0,
+        "output": "First, I need to figure out how to query this in Cypher. The main goal is to retrieve all 'Business' nodes that have a 'City' relationship. So, the query should select all 'Business' nodes where there's a 'City' connected to them. \n\nI remember that in Cypher, you can use the 'JOIN' keyword to link the nodes. So, the structure would be something like:\n\nMATCH (Business:Business)-[:LOCATED_IN]->(City:City)\nRETURN Business\n\nWait, but the user might want to include the 'name' and 'category' properties as well. The schema mentions those in the Node properties, so I should include them in"
+      },
+      "v0.1.1": {
+        "returncode": 0,
+        "output": "return all the names of the restaurants located in"
+      }
+    },
+    {
+      "id": "return_001",
+      "category": "return",
+      "system_prompt": "Dialect: cypher\nSchema:\nNode properties:\n- **Person**\n  - `name`: STRING\n  - `age`: INTEGER\n  - `email`: STRING\nRelationships:\nNone",
+      "user_prompt": "Get names and emails of all people",
+      "current": {
+        "returncode": 0,
+        "output": "First, I need to make sure I understand the task correctly. The user is probably looking for a way to retrieve all the 'Person' nodes from the database, each with their name and email. Since the relationships are none, I don't have to handle any edges or connections between people.\n\nI should check if there are any constraints or requirements that might affect this. The problem statement says \"all people\" and \"names and emails\", so I assume that each person is represented as a separate node. The relationships are not provided, so I don't need to consider any links between people.\n\nNow, I need to present this information in a clear and concise manner. The answer should list each person's name"
+      },
+      "v0.1.1": {
+        "returncode": 0,
+        "output": "First, I need to make sure I understand the task correctly. The user hasn't provided any specific data points, so I should assume that there are no existing nodes with these properties. Maybe the system is expecting me to generate dummy data or handle a case where there's no data available.\n\nWait, the schema mentions relationships, but in the user's query, there are no relationships. So the answer should list the 'Person' nodes without any relationships. Since there are no people mentioned, the answer should be an empty list or just state that no people were found.\n\nI should check if there's any possibility of data being missing. If the system is supposed to handle cases where data isn"
+      }
+    }
+  ]
+}

@@ -383,7 +383,7 @@ base_model_path = "F:/Node/hivellm/expert/models/Qwen3-0.6B"
 base_model = AutoModelForCausalLM.from_pretrained(
     base_model_path,
     device_map="auto",
-    torch_dtype=torch.bfloat16,
+    dtype=torch.bfloat16,
     trust_remote_code=True
 )
 
