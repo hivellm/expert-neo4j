@@ -1,0 +1,22 @@
+{
+  "v0.1.1": {
+    "match_001": ". The user wants me to find all people based on the given dialect and schema. The dialect is cypher, and the schema has a Node properties with Person and Relationships. The Relationships section is empty.",
+    "match_002": ". Could you provide the list of movies you'd like to see?",
+    "where_001": ". The user wants to find people older than 30 using the Cypher dialect. The schema has a Node with properties name and age, and no relationships. So, I need to query the graph where the age is greater than 30.",
+    "where_002": "with price less than",
+    "rel_001": "... but since the relationships are between Person and Movie, perhaps the answer is",
+    "agg_001": "and schema. The dialect here is cypher, which I think refers to a specific type of graph data model. The schema provided has a Node property called 'User' with a 'name' field as a string.",
+    "order_001": ", maybe the answer is that the data isn't available. But the user might expect a response. Maybe the initial data is in a JSON format, and I need to list the top 5 products from that data. But since I don't have access to the actual data, perhaps the answer is that the data isn't provided. But the",
+    "complex_001": ". The user wants to find people aged between 25 and 40 living in New York. The dialect is cypher, so I need to use the cypher schema. The schema has a Person node with name, age, and city. Relationships are none."
+  },
+  "v0.2.3": {
+    "match_001": ". The user wants me to find all people based on the given dialect and schema. The dialect is cypher, and the schema has a Node properties with Person and Relationships. The Relationships section is empty.",
+    "match_002": "asking me to list all movies based on the given dialect. Let me check the schema again. The schema has a Node property called Movie with title and released. Relationships are none. So, the task is to retrieve all movies from the Movie node.",
+    "where_001": ".",
+    "where_002": ", perhaps in a list format. But since the assistant's answer should be in the box, maybe the answer is the query. But the user might just want the query written.",
+    "rel_001": ". The user wants to find all actors in movies using the given dialect and schema. The schema has a Node with Movie and Person, and there's a relationship between Person and Movie via the ACTED_IN relationship.",
+    "agg_001": ". The user is asking to count the total number of users based on the given dialect and schema. The dialect here is cypher, which I think refers to a specific type of graph data model. The schema provided has a Node property called 'User' with a 'name' field as a string.",
+    "order_001": "ased on the given dialect. The schema has Node properties with Product having name and price, and no relationships. So, I need to figure out how to retrieve the top products.",
+    "complex_001": "and 40 living in New York. The dialect is cypher, so I need to use the cypher schema. The schema has a Person node with name, age, and city. Relationships are none."
+  }
+}

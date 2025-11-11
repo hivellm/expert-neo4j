@@ -7,6 +7,7 @@ Converts HuggingFace datasets to expert-compatible format:
 - Formats with Qwen3 native format (<|im_start|>/<|im_end|>)
 - Deduplicates by question
 - Canonicalizes schema format
+- Generates synthetic CREATE examples from MATCH queries
 """
 
 import argparse
@@ -17,6 +18,7 @@ import os
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from collections import defaultdict
+import random
 
 # Add experts root directory to path to import common utils
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../'))
@@ -31,6 +33,159 @@ except ImportError:
     def extract_query_only(text: str, query_type: str = "auto") -> str:
         return text.strip()
 
+def generate_synthetic_create_examples(match_examples: List[Dict[str, Any]], target_count: int) -> List[Dict[str, Any]]:
+    """
+    Generate synthetic CREATE examples from MATCH queries.
+    
+    Strategy:
+    1. Extract patterns from MATCH queries (nodes, relationships, properties)
+    2. Transform MATCH queries into CREATE queries
+    3. Generate natural language questions for CREATE operations
+    """
+    synthetic = []
+    random.seed(42)
+    
+    # Sample MATCH examples to transform (sample 5x to have variety and better success rate)
+    sample_size = min(target_count * 5, len(match_examples))
+    sampled = random.sample(match_examples, sample_size) if len(match_examples) > sample_size else match_examples
+    
+    # Process more examples than needed to account for failures
+    processed = 0
+    for example in sampled:
+        if len(synthetic) >= target_count:
+            break
+        try:
+            text = example.get("text", "")
+            if not text:
+                continue
+            
+            # Extract Cypher from ChatML format
+            cypher = extract_cypher_from_chatml(text)
+            if not cypher or not cypher.upper().startswith('MATCH'):
+                continue
+            
+            # Extract question from ChatML
+            question_match = re.search(r'<\|im_start\|>user\n(.*?)<\|im_end\|>', text, re.DOTALL)
+            if not question_match:
+                question_match = re.search(r'<\|user\|>\s*\n(.*?)\n<\|end\|>', text, re.DOTALL)
+            if not question_match:
+                question_match = re.search(r'<\|user\|>(.*?)<\|end\|>', text, re.DOTALL)
+            
+            original_question = question_match.group(1).strip() if question_match else ""
+            
+            # Transform MATCH to CREATE
+            create_query = transform_match_to_create(cypher)
+            if not create_query:
+                continue
+            # Basic validation - check if it's valid Cypher
+            if not validate_cypher(create_query):
+                continue
+            
+            # Generate CREATE question
+            create_question = generate_create_question(original_question, cypher, create_query)
+            
+            # Extract schema if available
+            schema_match = re.search(r'<\|im_start\|>system\n(.*?)<\|im_end\|>', text, re.DOTALL)
+            schema = ""
+            if schema_match:
+                system_content = schema_match.group(1)
+                if "Schema:" in system_content:
+                    schema = system_content.split("Schema:")[-1].strip()
+            
+            # Format as dict (will be formatted as ChatML later)
+            synthetic_example = {
+                "question": create_question,
+                "cypher": create_query,
+                "schema": schema
+            }
+            
+            synthetic.append(synthetic_example)
+            
+        except Exception as e:
+            continue
+    
+    return synthetic
+
+def transform_match_to_create(cypher: str) -> str:
+    """Transform a MATCH query into a CREATE query."""
+    cypher_upper = cypher.upper().strip()
+    
+    if not cypher_upper.startswith('MATCH'):
+        return ""
+    
+    # Extract the pattern part (everything after MATCH until RETURN/WITH/WHERE)
+    # Pattern: MATCH (n:Label {prop: value})-[r:REL]->(m:Label2) RETURN ...
+    # Transform to: CREATE (n:Label {prop: value})-[r:REL]->(m:Label2) RETURN ...
+    
+    # Find where MATCH pattern ends
+    pattern_end_keywords = ['RETURN', 'WITH', 'WHERE', 'SET', 'DELETE', 'CREATE', 'MERGE', 'UNWIND', 'CALL']
+    pattern_end_pos = len(cypher)
+    
+    for keyword in pattern_end_keywords:
+        pos = cypher_upper.find(f' {keyword}', 5)  # Start after 'MATCH'
+        if pos != -1 and pos < pattern_end_pos:
+            pattern_end_pos = pos
+    
+    # Extract pattern
+    pattern = cypher[5:pattern_end_pos].strip()  # Skip 'MATCH'
+    
+    if not pattern:
+        return ""
+    
+    # Get the rest of the query (RETURN, WITH, etc.)
+    rest = cypher[pattern_end_pos:].strip()
+    
+    # Create new query - replace MATCH with CREATE
+    create_query = f"CREATE {pattern}"
+    
+    # If there's a RETURN clause, keep it; otherwise add RETURN *
+    if rest.upper().startswith('RETURN'):
+        create_query += f" {rest}"
+    elif rest.upper().startswith('WITH'):
+        # WITH clauses are usually for chaining, keep them
+        create_query += f" {rest}"
+    else:
+        # No RETURN, add one
+        create_query += " RETURN *"
+    
+    return create_query
+
+def generate_create_question(original_question: str, match_cypher: str, create_cypher: str) -> str:
+    """Generate a natural language question for a CREATE operation."""
+    
+    # Extract node labels and properties from CREATE query
+    labels = re.findall(r'\([^)]*:(\w+)', create_cypher)
+    properties = re.findall(r'\{([^}]+)\}', create_cypher)
+    
+    # Common CREATE question templates
+    templates = [
+        "Create a new {label} node with the specified properties.",
+        "Add a new {label} node to the graph.",
+        "Insert a new {label} node with the given properties.",
+        "Create a new {label} node.",
+        "Add a {label} node with these properties to the database.",
+    ]
+    
+    if labels:
+        label = labels[0]
+        template = random.choice(templates)
+        question = template.format(label=label)
+    else:
+        question = "Create a new node with the specified properties."
+    
+    # If original question has context, try to adapt it
+    if original_question:
+        question_lower = original_question.lower()
+        # Try to transform "find" -> "create", "get" -> "add", etc.
+        if any(word in question_lower for word in ['find', 'get', 'retrieve', 'search', 'list', 'show', 'count']):
+            # Transform read operations to write operations
+            question = question.replace("Create", "Add").replace("create", "add")
+            # Add context from original if it's short
+            if len(original_question) < 100:
+                question = f"Add nodes matching: {original_question}"
+    
+    return question
+
 def load_dataset(dataset_name: str, split: str = "train"):
     """Load dataset from HuggingFace"""
     try:
@@ -42,10 +197,45 @@ def load_dataset(dataset_name: str, split: str = "train"):
     except Exception as e:
         print(f"Error loading dataset: {e}")
         print("\nAvailable text2cypher datasets:")
+        print("  - neo4j/text2cypher-2025v1")
+        print("  - megagonlabs/cypherbench")
         print("  - tomasonjo/text2cypher")
-        print("  - gretelai/synthetic_text_to_sql (can be adapted)")
         print("\nAlternatively, use a local JSONL file with --local-file")
         return None
+
+
+def generate_create_question(original_question: str, match_cypher: str, create_cypher: str) -> str:
+    """Generate a natural language question for a CREATE operation."""
+    
+    # Extract node labels and properties from CREATE query
+    labels = re.findall(r'\([^)]*:(\w+)', create_cypher)
+    properties = re.findall(r'\{([^}]+)\}', create_cypher)
+    
+    # Common CREATE question templates
+    templates = [
+        "Create a new {label} node with the specified properties.",
+        "Add a new {label} node to the graph.",
+        "Insert a new {label} node with the given properties.",
+        "Create a new {label} node.",
+    ]
+    
+    if labels:
+        label = labels[0]
+        template = random.choice(templates)
+        question = template.format(label=label)
+    else:
+        question = "Create a new node with the specified properties."
+    
+    # If original question has context, try to adapt it
+    if original_question:
+        # Try to transform "find" -> "create", "get" -> "add", etc.
+        question_lower = original_question.lower()
+        if any(word in question_lower for word in ['find', 'get', 'retrieve', 'search', 'list', 'show']):
+            question = question.replace("Create", "Add").replace("create", "add")
+        elif any(word in question_lower for word in ['count', 'how many']):
+            question = f"Create nodes matching the pattern from: {original_question[:100]}"
+    
+    return question
 
 def extract_schema_from_cypher_simple(cypher: str) -> str:
     """Extract a simple schema representation from Cypher query"""
@@ -256,6 +446,9 @@ def extract_cypher_from_chatml(text: str) -> str:
     match = re.search(r'<\|im_start\|>assistant\n(.*?)<\|im_end\|>', text, re.DOTALL)
     if match:
         cypher = match.group(1).strip()
+        # Remove reasoning blocks
+        cypher = re.sub(r'<think>.*?</think>', '', cypher, flags=re.DOTALL | re.IGNORECASE)
+        cypher = cypher.strip()
         if cypher:
             return cypher
     
@@ -277,6 +470,9 @@ def extract_cypher_from_chatml(text: str) -> str:
     match = re.search(r'<\|im_start\|>assistant(.*?)<\|im_end\|>', text, re.DOTALL)
     if match:
         cypher = match.group(1).strip()
+        # Remove reasoning blocks
+        cypher = re.sub(r'<think>.*?</think>', '', cypher, flags=re.DOTALL | re.IGNORECASE)
+        cypher = cypher.strip()
         if cypher:
             return cypher
     
@@ -295,6 +491,9 @@ def extract_cypher_from_chatml(text: str) -> str:
     if match:
         cypher = match.group(1).strip()
         cypher = re.sub(r'<\|im_end\|>.*', '', cypher, flags=re.DOTALL).strip()
+        # Remove reasoning blocks
+        cypher = re.sub(r'<think>.*?</think>', '', cypher, flags=re.DOTALL | re.IGNORECASE)
+        cypher = cypher.strip()
         if cypher and (cypher.upper().startswith('MATCH') or cypher.upper().startswith('CREATE') or 
                       cypher.upper().startswith('MERGE') or cypher.upper().startswith('DELETE') or
                       cypher.upper().startswith('RETURN') or cypher.upper().startswith('WITH')):
@@ -303,7 +502,7 @@ def extract_cypher_from_chatml(text: str) -> str:
     return ""
 
 def detect_cypher_type(cypher: str) -> str:
-    """Detect Cypher command type."""
+    """Detect Cypher command type. Prioritizes CREATE/MERGE over MATCH if both exist."""
     cypher_upper = cypher.upper().strip()
     
     # Remove comments and whitespace
@@ -314,13 +513,28 @@ def detect_cypher_type(cypher: str) -> str:
     if not cypher_upper:
         return "EMPTY"
     
+    # Check for CREATE/MERGE first (even if after MATCH) - these are write operations
+    # and should be prioritized for dataset balance
+    if re.search(r'\bCREATE\b', cypher_upper):
+        # If it starts with CREATE, it's pure CREATE
+        if cypher_upper.startswith('CREATE'):
+            return "CREATE"
+        # If CREATE appears after MATCH, still classify as CREATE (write operation)
+        elif cypher_upper.startswith('MATCH'):
+            return "CREATE"  # MATCH ... CREATE is a write operation
+        else:
+            return "CREATE"
+    elif re.search(r'\bMERGE\b', cypher_upper):
+        if cypher_upper.startswith('MERGE'):
+            return "MERGE"
+        elif cypher_upper.startswith('MATCH'):
+            return "MERGE"  # MATCH ... MERGE is a write operation
+        else:
+            return "MERGE"
+    
     # Check main command types (order matters - check more specific first)
     if cypher_upper.startswith('MATCH'):
         return "MATCH"
-    elif cypher_upper.startswith('CREATE'):
-        return "CREATE"
-    elif cypher_upper.startswith('MERGE'):
-        return "MERGE"
     elif cypher_upper.startswith('DELETE'):
         return "DELETE"
     elif cypher_upper.startswith('SET'):
@@ -342,15 +556,21 @@ def detect_cypher_type(cypher: str) -> str:
     else:
         return "OTHER"
 
-def rebalance_cypher_types(examples: List[Dict[str, Any]], target_match_ratio: float = 0.90, target_call_ratio: float = 0.05, min_total_examples: int = 10000) -> List[Dict[str, Any]]:
+def rebalance_cypher_types(examples: List[Dict[str, Any]], target_match_ratio: float = 0.70, target_call_ratio: float = 0.05, min_create_ratio: float = 0.20, max_create_ratio: float = 0.30, min_total_examples: int = 10000, generate_synthetic_create: bool = True) -> List[Dict[str, Any]]:
     """
-    Rebalance Cypher command types by reducing MATCH and CALL examples.
+    Rebalance Cypher command types ensuring:
+    - MATCH <= 70% (maximum)
+    - CREATE >= 20% and <= 30% (20-30% range)
+    - Other commands (MERGE, DELETE, SET, etc.) increased proportionally
     
     Args:
         examples: List of examples with 'text' field
-        target_match_ratio: Target ratio for MATCH (default: 0.90 = 90%)
+        target_match_ratio: Target max ratio for MATCH (default: 0.70 = 70%)
         target_call_ratio: Target max ratio for CALL (default: 0.05 = 5%)
+        min_create_ratio: Minimum ratio for CREATE (default: 0.20 = 20%)
+        max_create_ratio: Maximum ratio for CREATE (default: 0.30 = 30%)
         min_total_examples: Minimum total examples to include (default: 10000)
+        generate_synthetic_create: If True, generate synthetic CREATE examples from MATCH (default: True)
     
     Returns:
         Rebalanced list of examples
@@ -376,79 +596,197 @@ def rebalance_cypher_types(examples: List[Dict[str, Any]], target_match_ratio: f
     # Separate examples by type
     match_examples = examples_by_type.get("MATCH", [])
     call_examples = examples_by_type.get("CALL", [])
+    create_examples = examples_by_type.get("CREATE", [])
     other_examples = []
     
     for cypher_type, ex_list in examples_by_type.items():
-        if cypher_type not in ["MATCH", "CALL"]:
+        if cypher_type not in ["MATCH", "CALL", "CREATE"]:
             other_examples.extend(ex_list)
     
     random.seed(42)  # For reproducibility
     
+    create_count = len(create_examples)
     other_count = len(other_examples)
-    available_total = len(match_examples) + len(call_examples) + other_count
+    match_count = len(match_examples)
+    call_count = len(call_examples)
     
-    # Calculate target counts to reach min_total_examples while maintaining ratios
-    # We want: MATCH = 70%, CALL = 5%, Other = 25%
+    print(f"      [DEBUG] Available: MATCH={match_count:,}, CREATE={create_count:,}, CALL={call_count:,}, OTHER={other_count:,}")
     
-    if other_count > 0:
-        # Strategy: Use all other examples, then add MATCH and CALL to reach min_total_examples
-        # while maintaining approximate ratios
+    # Generate synthetic CREATE examples if needed
+    target_create_count_for_10k = int(min_total_examples * min_create_ratio)  # 20% of 10k = 2000
+    if generate_synthetic_create and create_count < target_create_count_for_10k and match_count > 0:
+        needed_create = target_create_count_for_10k - create_count
+        print(f"      [SYNTHETIC] Generating {needed_create:,} synthetic CREATE examples from MATCH queries...")
+        synthetic_create = generate_synthetic_create_examples(match_examples, needed_create)
         
-        # Start with all other examples
-        target_other_count = other_count
+        # Format synthetic examples as ChatML
+        synthetic_formatted = []
+        for syn_ex in synthetic_create:
+            # Use same reasoning distribution as main dataset (75% reasoning)
+            include_reasoning = (len(synthetic_formatted) % 4 != 0)
+            formatted_text = format_chatml(
+                syn_ex["question"],
+                syn_ex["cypher"],
+                syn_ex.get("schema", ""),
+                dialect="cypher",
+                include_reasoning=include_reasoning
+            )
+            synthetic_formatted.append({"text": formatted_text})
         
-        # Calculate how many MATCH and CALL we need to reach min_total_examples
-        remaining_slots = min_total_examples - target_other_count
-        
-        if remaining_slots > 0:
-            # Calculate MATCH and CALL counts to maintain ratios
-            # MATCH should be ~70% of total, CALL ~5% of total
-            # So: MATCH = 0.7 * total, CALL = 0.05 * total
-            # remaining_slots = MATCH + CALL
-            # remaining_slots = 0.7 * total + 0.05 * total = 0.75 * total
-            # total = remaining_slots / 0.75
-            # MATCH = 0.7 * total = 0.7 * (remaining_slots / 0.75) = remaining_slots * 0.7/0.75
-            target_match_count = int(remaining_slots * (target_match_ratio / (target_match_ratio + target_call_ratio)))
-            target_call_count = int(remaining_slots * (target_call_ratio / (target_match_ratio + target_call_ratio)))
-            
-            # Ensure we don't exceed available examples
-            target_match_count = min(target_match_count, len(match_examples))
-            target_call_count = min(target_call_count, len(call_examples))
-            
-            # If we still have room and more MATCH available, add more MATCH to reach min_total_examples
-            current_total = target_match_count + target_call_count + target_other_count
-            if current_total < min_total_examples and len(match_examples) > target_match_count:
-                additional_match = min(min_total_examples - current_total, len(match_examples) - target_match_count)
-                target_match_count += additional_match
-            
-            # Recalculate CALL to maintain ~5% ratio of final total
-            final_total = target_match_count + target_call_count + target_other_count
-            ideal_call_count = int(final_total * target_call_ratio)
-            ideal_call_count = min(ideal_call_count, len(call_examples))
-            if ideal_call_count > target_call_count:
-                target_call_count = ideal_call_count
-        else:
-            # We have enough other examples, use ratios
-            target_match_count = int(min_total_examples * target_match_ratio)
-            target_call_count = int(min_total_examples * target_call_ratio)
-            target_match_count = min(target_match_count, len(match_examples))
-            target_call_count = min(target_call_count, len(call_examples))
-        
-        # Ensure minimum counts
-        if len(match_examples) > 0:
-            min_match_count = min(100, len(match_examples))
-            target_match_count = max(target_match_count, min_match_count)
+        create_examples.extend(synthetic_formatted)
+        create_count = len(create_examples)
+        print(f"      [SYNTHETIC] Generated {len(synthetic_formatted):,} synthetic CREATE examples. Total CREATE: {create_count:,}")
+    
+    # SIMPLIFIED STRATEGY: Calculate everything based on 10k from the start
+    # 1. CREATE: 20-30% of 10k = 2,000-3,000 (use all available, but cap at 3,000)
+    # 2. MATCH: Maximum 70% of 10k = 7,000 (hard limit)
+    # 3. CALL: Maximum 5% of 10k = 500
+    # 4. OTHER: Fill remaining to reach exactly 10k
+    
+    target_total = min_total_examples  # Always target 10k
+    
+    # Step 1: CREATE - Use all available, but ensure it's 20-30% of 10k
+    min_create_for_10k = int(target_total * min_create_ratio)  # 2,000
+    max_create_for_10k = int(target_total * max_create_ratio)   # 3,000
+    
+    if create_count == 0:
+        print(f"      [ERROR] No CREATE examples found! Cannot achieve 20-30% CREATE.")
+        target_create_count = 0
+    elif create_count < min_create_for_10k:
+        # Not enough CREATE for 20% - use all available (will be < 20%)
+        target_create_count = create_count
+        print(f"      [WARNING] Insufficient CREATE examples. Using all {create_count:,} (will be {create_count/target_total*100:.1f}% of {target_total:,})")
     else:
-        # If no other examples, use all available
-        target_match_count = len(match_examples)
-        target_call_count = len(call_examples)
+        # We have enough CREATE - use between 2,000-3,000
+        target_create_count = min(create_count, max_create_for_10k)  # Cap at 3,000
+        if target_create_count < min_create_for_10k:
+            # We have between min and max, use all
+            target_create_count = create_count
+    
+    # Step 2: MATCH - Maximum 70% of 10k = 7,000 (hard limit)
+    max_match_for_10k = int(target_total * target_match_ratio)  # 7,000
+    target_match_count = min(max_match_for_10k, match_count)
+    
+    # Step 3: CALL - Maximum 5% of 10k = 500
+    max_call_for_10k = int(target_total * target_call_ratio)  # 500
+    target_call_count = min(max_call_for_10k, call_count)
+    
+    # Step 4: OTHER - Fill remaining slots to reach exactly 10k
+    remaining_slots = target_total - target_create_count - target_match_count - target_call_count
+    target_other_count = min(other_count, remaining_slots)
+    
+    # Calculate current total
+    current_total = target_create_count + target_match_count + target_call_count + target_other_count
+    
+    # If we don't have 10k yet, fill remaining with OTHER (or MATCH if OTHER is exhausted, but respect 70% limit)
+    if current_total < target_total:
+        remaining = target_total - current_total
+        
+        # Try to fill with OTHER first
+        if other_count > target_other_count:
+            additional_other = min(remaining, other_count - target_other_count)
+            target_other_count += additional_other
+            remaining -= additional_other
+        
+        # If still not 10k and MATCH is below 70% limit, add more MATCH
+        if remaining > 0 and target_match_count < max_match_for_10k and match_count > target_match_count:
+            additional_match = min(remaining, max_match_for_10k - target_match_count, match_count - target_match_count)
+            target_match_count += additional_match
+            remaining -= additional_match
+        
+        # Final check: if still not 10k, we don't have enough examples
+        if remaining > 0:
+            actual_total = target_create_count + target_match_count + target_call_count + target_other_count
+            print(f"      [WARNING] Cannot reach {target_total:,} examples. Will have {actual_total:,} examples")
+    
+    # Final verification: ensure ratios are correct
+    final_total = target_create_count + target_match_count + target_call_count + target_other_count
+    final_create_ratio = target_create_count / final_total if final_total > 0 else 0
+    final_match_ratio = target_match_count / final_total if final_total > 0 else 0
+    
+    # If MATCH exceeds 70%, reduce it and redistribute to OTHER
+    if final_match_ratio > target_match_ratio:
+        max_match_allowed = int(final_total * target_match_ratio)
+        excess_match = target_match_count - max_match_allowed
+        target_match_count = max_match_allowed
+        target_other_count = min(other_count, target_other_count + excess_match)
+        final_total = target_create_count + target_match_count + target_call_count + target_other_count
+        final_match_ratio = target_match_count / final_total if final_total > 0 else 0
+    
+    # If CREATE exceeds 30%, reduce it and redistribute
+    if final_create_ratio > max_create_ratio:
+        max_create_allowed = int(final_total * max_create_ratio)
+        excess_create = target_create_count - max_create_allowed
+        target_create_count = max_create_allowed
+        # Redistribute excess to OTHER (or MATCH if OTHER is full, but respect 70% limit)
+        if other_count >= target_other_count + excess_create:
+            target_other_count += excess_create
+        else:
+            target_other_count = other_count
+            remaining_excess = excess_create - (other_count - target_other_count)
+            # Add to MATCH if below 70% limit
+            if remaining_excess > 0 and target_match_count < int(final_total * target_match_ratio):
+                max_match_allowed = int(final_total * target_match_ratio)
+                target_match_count = min(target_match_count + remaining_excess, max_match_allowed, match_count)
+        final_total = target_create_count + target_match_count + target_call_count + target_other_count
+    
+    # Ensure we don't exceed available examples
+    target_match_count = min(target_match_count, match_count)
+    target_create_count = min(target_create_count, create_count)
+    target_call_count = min(target_call_count, call_count)
+    target_other_count = min(target_other_count, other_count)
+    
+    # FINAL CHECK: Recalculate final_total and ensure MATCH <= 70% (CRITICAL)
+    # This check MUST enforce MATCH <= 70% even if it means fewer than 10k examples
+    # We need to iterate until MATCH is <= 70%
+    max_iterations = 10
+    for iteration in range(max_iterations):
+        final_total = target_create_count + target_match_count + target_call_count + target_other_count
+        if final_total == 0:
+            break
+        
+        final_match_ratio = target_match_count / final_total
+        if final_match_ratio <= target_match_ratio:
+            # MATCH is within limit, we're done
+            break
+        
+        # MATCH exceeds 70% - reduce it to exactly 70% (or slightly less to be safe)
+        max_match_allowed = int(final_total * target_match_ratio * 0.999)  # 0.999 to ensure we're slightly below 70%
+        if target_match_count <= max_match_allowed:
+            # Already at or below limit, can't reduce further
+            break
+        
+        target_match_count = max_match_allowed
+        # Recalculate final_total (will be smaller now)
+        final_total = target_create_count + target_match_count + target_call_count + target_other_count
+        
+        if iteration == 0:
+            print(f"      [ADJUSTED] Reduced MATCH to {target_match_count:,} ({target_match_count/final_total*100:.1f}% of {final_total:,}) to respect 70% limit")
+    
+    # Ensure we don't exceed available examples (final check)
+    target_match_count = min(target_match_count, match_count)
+    target_create_count = min(target_create_count, create_count)
+    target_call_count = min(target_call_count, call_count)
+    target_other_count = min(target_other_count, other_count)
+    
+    # ONE MORE CHECK: After limiting to available examples, ensure MATCH <= 70%
+    final_total = target_create_count + target_match_count + target_call_count + target_other_count
+    if final_total > 0:
+        final_match_ratio = target_match_count / final_total
+        if final_match_ratio > target_match_ratio:
+            # Still exceeds 70% - reduce again
+            max_match_allowed = int(final_total * target_match_ratio * 0.999)
+            target_match_count = min(max_match_allowed, match_count)
+            print(f"      [FINAL ADJUSTMENT] Reduced MATCH to {target_match_count:,} ({target_match_count/(target_create_count + target_match_count + target_call_count + target_other_count)*100:.1f}%) to respect 70% limit")
     
     # Sample examples
     selected_match = random.sample(match_examples, target_match_count) if match_examples and target_match_count > 0 else []
     selected_call = random.sample(call_examples, target_call_count) if call_examples and target_call_count > 0 else []
+    selected_create = random.sample(create_examples, target_create_count) if create_examples and target_create_count > 0 else []
+    selected_other = random.sample(other_examples, target_other_count) if other_examples and target_other_count > 0 else []
     
     # Combine all examples
-    rebalanced = selected_match + selected_call + other_examples
+    rebalanced = selected_match + selected_call + selected_create + selected_other
     
     # Shuffle to mix types
     random.shuffle(rebalanced)
@@ -492,7 +830,7 @@ def load_documentation_examples(raw_dir: Path) -> List[Dict[str, Any]]:
 def process_dataset(
     dataset_name: str = None,
     local_file: str = None,
-    output_dir: str = "datasets/processed",
+    output_dir: str = "datasets",
     dialect: str = "cypher",
     validate: bool = False,
     no_deduplicate: bool = False,
@@ -501,7 +839,8 @@ def process_dataset(
     include_documentation: bool = False,
     raw_dir: str = "datasets/raw",
     rebalance: bool = True,
-    target_match_ratio: float = 0.75
+    target_match_ratio: float = 0.70,
+    generate_synthetic_create: bool = True
 ):
     """Process dataset and save in expert format"""
     
@@ -790,7 +1129,15 @@ def process_dataset(
                     cypher_type = detect_cypher_type(cypher)
                     before_types[cypher_type] += 1
             
-            rebalanced_list = rebalance_cypher_types(examples_list, target_match_ratio, target_call_ratio, min_total_examples=10000)
+            rebalanced_list = rebalance_cypher_types(
+                examples_list, 
+                target_match_ratio, 
+                target_call_ratio, 
+                min_create_ratio=0.20, 
+                max_create_ratio=0.30, 
+                min_total_examples=10000,
+                generate_synthetic_create=generate_synthetic_create
+            )
             
             # Count types after
             after_types = Counter()
@@ -808,7 +1155,21 @@ def process_dataset(
             if len(rebalanced_list) > 0:
                 after_match_pct = after_types.get('MATCH', 0) / len(rebalanced_list) * 100
                 after_call_pct = after_types.get('CALL', 0) / len(rebalanced_list) * 100
-                print(f"      After:  MATCH={after_types.get('MATCH', 0):,} ({after_match_pct:.1f}%), CALL={after_types.get('CALL', 0):,} ({after_call_pct:.1f}%)")
+                after_create_pct = after_types.get('CREATE', 0) / len(rebalanced_list) * 100
+                after_other_pct = (len(rebalanced_list) - after_types.get('MATCH', 0) - after_types.get('CREATE', 0) - after_types.get('CALL', 0)) / len(rebalanced_list) * 100
+                
+                print(f"      After:  MATCH={after_types.get('MATCH', 0):,} ({after_match_pct:.1f}%), CREATE={after_types.get('CREATE', 0):,} ({after_create_pct:.1f}%), CALL={after_types.get('CALL', 0):,} ({after_call_pct:.1f}%), OTHER={len(rebalanced_list) - after_types.get('MATCH', 0) - after_types.get('CREATE', 0) - after_types.get('CALL', 0):,} ({after_other_pct:.1f}%)")
+                
+                # Verify ratios
+                if after_match_pct > 70.0:
+                    print(f"      [ERROR] MATCH is above maximum (70%). Current: {after_match_pct:.1f}%")
+                if after_create_pct < 20.0:
+                    print(f"      [ERROR] CREATE is below minimum (20-30%). Current: {after_create_pct:.1f}%")
+                    print(f"      [ERROR] To achieve 20-30% CREATE, more CREATE examples are needed in the original dataset.")
+                elif after_create_pct > 30.0:
+                    print(f"      [WARNING] CREATE is above maximum (30%). Current: {after_create_pct:.1f}%")
+                if after_match_pct <= 70.0 and 20.0 <= after_create_pct <= 30.0:
+                    print(f"      [OK] Correct distribution: MATCH <= 70%, CREATE between 20-30%")
             print(f"      Reduction: {len(examples_list):,} -> {len(rebalanced_list):,} examples")
             
             # Convert back to processed format
@@ -945,14 +1306,20 @@ def main():
     parser.add_argument(
         "--no-rebalance",
         action="store_true",
-        help="Skip Cypher command type rebalancing (default: enabled, reduces MATCH to ~75%)"
+        help="Skip Cypher command type rebalancing (default: enabled, reduces MATCH to ~70%)"
     )
     
     parser.add_argument(
         "--match-ratio",
         type=float,
-        default=0.75,
-        help="Target MATCH ratio for rebalancing (default: 0.75 = 75 percent)"
+        default=0.70,
+        help="Target MATCH ratio for rebalancing (default: 0.70 = 70 percent, max allowed)"
+    )
+    
+    parser.add_argument(
+        "--no-synthetic-create",
+        action="store_true",
+        help="Disable synthetic CREATE generation from MATCH queries (default: enabled)"
     )
     
     args = parser.parse_args()
@@ -975,9 +1342,9 @@ def main():
         include_documentation=args.include_documentation,
         raw_dir=args.raw_dir,
         rebalance=not args.no_rebalance,
-        target_match_ratio=args.match_ratio
+        target_match_ratio=args.match_ratio,
+        generate_synthetic_create=not args.no_synthetic_create
     )
 
 if __name__ == "__main__":
     main()
-

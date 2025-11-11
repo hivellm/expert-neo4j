@@ -19,8 +19,23 @@ import numpy as np
 import matplotlib
 matplotlib.use('Agg')  # Non-interactive backend
 
+ROOT_DIR = Path(__file__).resolve().parent.parent
+DATASET_DIR = ROOT_DIR / "datasets"
+DOCS_DIR = ROOT_DIR / "docs"
+
 def extract_cypher_from_chatml(text: str) -> str:
-    """Extract Cypher query from ChatML text."""
+    """Extract Cypher query from ChatML text (supports Qwen3 and legacy formats)."""
+    # Try Qwen3 format first (<|im_start|>assistant\n...<|im_end|>)
+    match = re.search(r'<\|im_start\|>assistant\n(.*?)<\|im_end\|>', text, re.DOTALL)
+    if match:
+        cypher = match.group(1).strip()
+        # Remove reasoning blocks if present
+        cypher = re.sub(r'<think>.*?</think>', '', cypher, flags=re.DOTALL | re.IGNORECASE)
+        cypher = re.sub(r'<think>.*?</think>', '', cypher, flags=re.DOTALL | re.IGNORECASE)
+        cypher = cypher.strip()
+        if cypher:
+            return cypher
+    
     # Try standard ChatML format
     match = re.search(r'<\|assistant\|>\s*\n(.*?)\n<\|end\|>', text, re.DOTALL)
     if match:
@@ -311,61 +326,66 @@ def plot_complexity_distribution(complexity: Counter, output_dir: Path):
     print(f"  - {output_dir / 'complexity_distribution.pdf'}")
 
 def main():
-    dataset_path = Path("datasets/train.jsonl")
-    output_dir = Path("docs")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    
-    if not dataset_path.exists():
-        print(f"[ERROR] Dataset not found: {dataset_path}")
+    DOCS_DIR.mkdir(parents=True, exist_ok=True)
+
+    synthetic_files = sorted(DATASET_DIR.glob('synthetic*.jsonl'))
+    processed_file = DATASET_DIR / 'train.jsonl'
+    if processed_file.exists():
+        synthetic_files.append(processed_file)
+
+    commands = Counter()
+    complexity = Counter()
+
+    if synthetic_files:
+        print(f"Discovered {len(synthetic_files)} synthetic datasets:")
+        for path in synthetic_files:
+            print(f"  - {path.name}")
+            analysis_results = load_and_analyze_dataset(path)
+            commands.update(analysis_results['commands'])
+            complexity.update(analysis_results['complexity'])
+    else:
+        dataset_path = DATASET_DIR / "train.jsonl"
+        if not dataset_path.exists():
+            print(f"[ERROR] Dataset not found: {dataset_path}")
+            return
+        print("No synthetic datasets found. Using train.jsonl")
+        print(f"  - {dataset_path.name}")
+        analysis_results = load_and_analyze_dataset(dataset_path)
+        commands.update(analysis_results['commands'])
+        complexity.update(analysis_results['complexity'])
+
+    if not commands:
+        print("[ERROR] No queries found to analyze.")
         return
-    
-    print("="*80)
-    print("NEO4J DATASET DISTRIBUTION ANALYSIS")
-    print("="*80)
-    print()
-    print(f"Loading dataset: {dataset_path}")
-    print()
-    
-    # Load and analyze
-    analysis_results = load_and_analyze_dataset(dataset_path)
-    commands = analysis_results["commands"]
-    complexity = analysis_results["complexity"]
-    
-    # Print summary statistics
-    print("="*80)
-    print("COMMAND TYPE DISTRIBUTION")
+
+    print("\nSUMMARY")
     print("="*80)
     total_commands = sum(commands.values())
     for cmd_type, count in sorted(commands.items(), key=lambda x: x[1], reverse=True):
-        pct = count / total_commands * 100
+        pct = count / total_commands * 100 if total_commands else 0
         print(f"  {cmd_type:20s}: {count:6,} ({pct:5.2f}%)")
-    print()
-    
-    print("="*80)
-    print("COMPLEXITY DISTRIBUTION")
-    print("="*80)
+
     total_complexity = sum(complexity.values())
-    order = ["Simple", "Medium", "Complex", "Very Complex"]
-    for level in order:
-        if level in complexity:
-            count = complexity[level]
-            pct = count / total_complexity * 100
-            print(f"  {level:20s}: {count:6,} ({pct:5.2f}%)")
-    print()
-    
-    # Generate charts
-    print("="*80)
-    print("GENERATING CHARTS")
-    print("="*80)
-    print()
-    
-    plot_command_type_distribution(commands, output_dir)
-    plot_complexity_distribution(complexity, output_dir)
-    
-    print()
-    print("="*80)
-    print("[OK] Analysis complete!")
-    print("="*80)
+    if total_complexity:
+        print("\nComplexity levels:")
+        order = ["Simple", "Medium", "Complex", "Very Complex"]
+        for level in order:
+            if level in complexity:
+                count = complexity[level]
+                pct = count / total_complexity * 100
+                print(f"  {level:20s}: {count:6,} ({pct:5.2f}%)")
+    else:
+        print("\nNo complexity information available.")
+
+    print("\nGenerating charts...")
+    plot_command_type_distribution(commands, DOCS_DIR)
+    plot_complexity_distribution(complexity, DOCS_DIR)
+    print("\n[OK] Charts saved to:")
+    print(f"  - {DOCS_DIR / 'dataset_distribution.png'}")
+    print(f"  - {DOCS_DIR / 'dataset_distribution.pdf'}")
+    print(f"  - {DOCS_DIR / 'complexity_distribution.png'}")
+    print(f"  - {DOCS_DIR / 'complexity_distribution.pdf'}")
+
 
 if __name__ == "__main__":
     main()
