@@ -1,8 +1,18 @@
 # Expert Neo4j
 
-Neo4j Cypher query generation expert. Trained on 29,772 validated examples from multiple sources (neo4j/text2cypher-2025v1, Neo4j official documentation). Optimized for graph database queries with MATCH, CREATE, relationships, and pattern matching.
+[![Version](https://img.shields.io/badge/version-0.2.3-blue.svg)](https://github.com/hivellm/expert-neo4j/releases/tag/v0.2.3)
+[![License](https://img.shields.io/badge/license-CC--BY--4.0-green.svg)](LICENSE)
+[![Status](https://img.shields.io/badge/status-production-brightgreen.svg)](README.md#quick-start)
+[![Quality](https://img.shields.io/badge/quality-79%25%20valid-success.svg)](README.md#known-limitations)
+[![Test Scenarios](https://img.shields.io/badge/tests-11%2F14%20passed-success.svg)](README.md#known-limitations)
 
-**Version:** 0.2.3 | **Checkpoint:** checkpoint-2000 | **Quality:** 79% valid queries (11/14 tests) | **Dataset:** 29,772 examples | **Template:** qwen3
+[![Base Model](https://img.shields.io/badge/base%20model-Qwen3--0.6B-orange.svg)](README.md#features)
+[![Checkpoint](https://img.shields.io/badge/checkpoint-2000-blue.svg)](README.md#training--configuration)
+[![Adapter](https://img.shields.io/badge/adapter-DoRA%20r%3D16-blue.svg)](README.md#training--configuration)
+[![Dataset](https://img.shields.io/badge/dataset-29.7k%20examples-brightgreen.svg)](README.md#training--configuration)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20CUDA-0078d4.svg)](README.md#features)
+
+Neo4j Cypher query generation expert. Trained on 29,772 validated examples from multiple sources (neo4j/text2cypher-2025v1, Neo4j official documentation). Optimized for graph database queries with MATCH, CREATE, relationships, and pattern matching.
 
 ## Quick Start
 
